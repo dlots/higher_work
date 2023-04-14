@@ -1,0 +1,262 @@
+# Снижаем цикломатическую сложность
+
+## Фрагмент 1.
+### Исходная версия (цикломатическая сложность - 12):
+```python
+class VoxelSceneDataset(Dataset):
+    def __getitem__(self, item_index):
+        scene_path = os.path.join(self.location, self.sample_directories[item_index])
+        clean_scene_path = ''
+        for path in os.listdir(scene_path):
+            if 'clean' in path:
+                clean_scene_path = os.path.join(scene_path, path)
+        coordinates, colors, labels = labels_loader.f(clean_scene_path)
+        voxel_grid = np.ndarray((voxel_grid_dimX, voxel_grid_dimY, voxel_grid_dimZ, VoxelData.NUMBER_OF_ATTRIBUTES),
+                                dtype=np.float64)
+        xs = []
+        ys = []
+        zs = []
+        for coordinate in coordinates:
+            coordinate[1], coordinate[2] = coordinate[2], -coordinate[1]
+            xs.append(coordinate[0])
+            ys.append(coordinate[1])
+            zs.append(coordinate[2])
+        min_xs = min(xs)
+        max_xs = max(xs)
+        min_ys = min(ys)
+        max_ys = max(ys)
+        min_zs = min(zs)
+        max_zs = max(zs)
+        max_range = max((max_xs - min_xs), (max_ys - min_ys), (max_zs - min_zs))
+        for vertex_index in range(len(coordinates)):
+            normalized_x = (xs[vertex_index] - min_xs) / max_range
+            normalized_y = (ys[vertex_index] - min_ys) / max_range
+            normalized_z = (zs[vertex_index] - min_zs) / max_range
+            voxel_x = np.floor(normalized_x * voxel_grid_dimX)
+            voxel_y = np.floor(normalized_y * voxel_grid_dimY)
+            voxel_z = np.floor(normalized_z * voxel_grid_dimZ)
+            voxel_x = int(voxel_x)
+            voxel_y = int(voxel_y)
+            voxel_z = int(voxel_z)
+            if voxel_x == 64:
+                voxel_x -= 1
+            if voxel_y == 64:
+                voxel_y -= 1
+            if voxel_z == 64:
+                voxel_z -= 1
+            voxel = voxel_grid[voxel_x][voxel_y][voxel_z]
+            color = colors[vertex_index]
+            voxel[VoxelData.RED] += color[RGBA.RED] * color[RGBA.RED]
+            voxel[VoxelData.GREEN] += color[RGBA.GREEN] * color[RGBA.GREEN]
+            voxel[VoxelData.BLUE] += color[RGBA.BLUE] * color[RGBA.BLUE]
+            voxel[VoxelData.LABEL] += labels[vertex_index]
+            voxel[VoxelData.LENGTH] += 1
+        for x in range(len(voxel_grid[0])):
+            for y in range(len(voxel_grid[1])):
+                for z in range(len(voxel_grid[2])):
+                    voxel = voxel_grid[x][y][z]
+                    if voxel[VoxelData.LENGTH] > 0:
+                        voxel[VoxelData.RED] = int(np.floor(np.sqrt(voxel[VoxelData.RED] / voxel[VoxelData.LENGTH])))
+                        voxel[VoxelData.GREEN] = int(
+                            np.floor(np.sqrt(voxel[VoxelData.GREEN] / voxel[VoxelData.LENGTH])))
+                        voxel[VoxelData.BLUE] = int(np.floor(np.sqrt(voxel[VoxelData.BLUE] / voxel[VoxelData.LENGTH])))
+                        voxel[VoxelData.LABEL] = voxel[VoxelData.LABEL] / voxel[VoxelData.LENGTH]
+                        # TODO: wrong label count! Need to find most frequent label, not the mean of all labels!
+        return voxel_grid
+```
+### Переработанная версия (цикломатическая сложность - 6):
+Использованные приемы:
+1. Заменил некоторые циклы на выражения-генераторы.
+2. Избавился от лишних IF-выражений.
+Исправления отмечены комментариями в коде.
+```python
+class VoxelSceneDataset(Dataset):
+    def __getitem__(self, item_index):
+        scene_path = os.path.join(self.location, self.sample_directories[item_index])
+        # Тут был цикл с вложенным условием. Заменил на выражение-генератор.
+        clean_scene_path = next((os.path.join(scene_path, path) for path in os.listdir(scene_path) if 'clean' in path), None)
+        coordinates, colors, labels = labels_loader.f(clean_scene_path)
+        voxel_grid = np.ndarray((voxel_grid_dimX, voxel_grid_dimY, voxel_grid_dimZ, VoxelData.NUMBER_OF_ATTRIBUTES),
+                                dtype=np.float64)
+        # Вычисление координат при помощи генератора вместо цикла.
+        xs, ys, zs = ([coordinate[0] for coordinate in coordinates],
+                      [-coordinate[2] for coordinate in coordinates],
+                      [coordinate[1] for coordinate in coordinates])
+        min_xs = min(xs)
+        max_xs = max(xs)
+        min_ys = min(ys)
+        max_ys = max(ys)
+        min_zs = min(zs)
+        max_zs = max(zs)
+        max_range = max((max_xs - min_xs), (max_ys - min_ys), (max_zs - min_zs))
+        for vertex_index in range(len(coordinates)):
+            normalized_x = (xs[vertex_index] - min_xs) / max_range
+            normalized_y = (ys[vertex_index] - min_ys) / max_range
+            normalized_z = (zs[vertex_index] - min_zs) / max_range
+            voxel_x = np.floor(normalized_x * voxel_grid_dimX)
+            voxel_y = np.floor(normalized_y * voxel_grid_dimY)
+            voxel_z = np.floor(normalized_z * voxel_grid_dimZ)
+            # Заменил IF-выражения на функцию min
+            voxel_x = min(int(voxel_x), voxel_grid_dimX - 1)
+            voxel_y = min(int(voxel_y), voxel_grid_dimY - 1)
+            voxel_z = min(int(voxel_z), voxel_grid_dimZ - 1)
+            voxel = voxel_grid[voxel_x][voxel_y][voxel_z]
+            color = colors[vertex_index]
+            voxel[VoxelData.RED] += color[RGBA.RED] * color[RGBA.RED]
+            voxel[VoxelData.GREEN] += color[RGBA.GREEN] * color[RGBA.GREEN]
+            voxel[VoxelData.BLUE] += color[RGBA.BLUE] * color[RGBA.BLUE]
+            voxel[VoxelData.LABEL] += labels[vertex_index]
+            voxel[VoxelData.LENGTH] += 1
+        for x in range(len(voxel_grid[0])):
+            for y in range(len(voxel_grid[1])):
+                for z in range(len(voxel_grid[2])):
+                    voxel = voxel_grid[x][y][z]
+                    if voxel[VoxelData.LENGTH] > 0:
+                        voxel[VoxelData.RED] = int(np.floor(np.sqrt(voxel[VoxelData.RED] / voxel[VoxelData.LENGTH])))
+                        voxel[VoxelData.GREEN] = int(
+                            np.floor(np.sqrt(voxel[VoxelData.GREEN] / voxel[VoxelData.LENGTH])))
+                        voxel[VoxelData.BLUE] = int(np.floor(np.sqrt(voxel[VoxelData.BLUE] / voxel[VoxelData.LENGTH])))
+                        voxel[VoxelData.LABEL] = voxel[VoxelData.LABEL] / voxel[VoxelData.LENGTH]
+        return voxel_grid
+```
+
+## Фрагмент 2.
+### Исходная версия (цикломатическая сложность - 9):
+```python
+def visualize(voxel_grid):
+    ply = open('visualization.ply', 'w')
+    ply.write('ply\n')
+    ply.write('format ascii 1.0\n')
+    n_vertices = 0
+    for x in range(len(voxel_grid[0])):
+        for y in range(len(voxel_grid[1])):
+            for z in range(len(voxel_grid[2])):
+                voxel = voxel_grid[x][y][z]
+                if voxel[VoxelData.LENGTH] > 0:
+                    n_vertices += 1
+    ply.write('element vertex %s\n' % n_vertices)
+    ply.write('property float x\n')
+    ply.write('property float y\n')
+    ply.write('property float z\n')
+    ply.write('property uchar red\n')
+    ply.write('property uchar green\n')
+    ply.write('property uchar blue\n')
+    ply.write('end_header\n')
+    for x in range(len(voxel_grid[0])):
+        for y in range(len(voxel_grid[1])):
+            for z in range(len(voxel_grid[2])):
+                voxel = voxel_grid[x][y][z]
+                if voxel[VoxelData.LENGTH] > 0:
+                    red = int(voxel[VoxelData.RED])
+                    green = int(voxel[VoxelData.GREEN])
+                    blue = int(voxel[VoxelData.BLUE])
+                    ply.write('%s %s %s %s %s %s\n' % (x, y, z, red, green, blue))
+    ply.close()
+```
+### Переработанная версия (цикломатическая сложность - 5):
+Использованные приемы:
+1. Заменил 3 вложенных цикла обхода воксельной сетки на итераторы.
+2. Во втором случае так не получилось сделать, так как нужны координаты.
+   Вместо этого выделил кусок кода, который логически можно выделить в отдельный метод, чтобы снизить сложность хотя бы на 1.
+
+Исправления отмечены комментариями в коде.
+```python
+# Выделил блок кода с IF-выражением в отдельный метод
+def write_voxel(file, voxel, dimensions):
+    x, y, z = dimensions
+    if voxel[VoxelData.LENGTH] > 0:
+        red = int(voxel[VoxelData.RED])
+        green = int(voxel[VoxelData.GREEN])
+        blue = int(voxel[VoxelData.BLUE])
+        file.write('%s %s %s %s %s %s\n' % (x, y, z, red, green, blue))
+
+
+def visualize(voxel_grid):
+    ply = open('visualization.ply', 'w')
+    ply.write('ply\n')
+    ply.write('format ascii 1.0\n')
+    n_vertices = 0
+    # Заменил ручной обход тензора на итерирование по несколько элементов.
+    grid_iter = np.nditer(voxel_grid)
+    while grid_iter:
+        voxel = [x for x in itertools.islice(grid_iter, VoxelData.NUMBER_OF_ATTRIBUTES)]
+        n_vertices += (voxel[VoxelData.LENGTH] > 0)
+    ply.write('element vertex %s\n' % n_vertices)
+    ply.write('property float x\n')
+    ply.write('property float y\n')
+    ply.write('property float z\n')
+    ply.write('property uchar red\n')
+    ply.write('property uchar green\n')
+    ply.write('property uchar blue\n')
+    ply.write('end_header\n')
+    for x in range(len(voxel_grid[0])):
+        for y in range(len(voxel_grid[1])):
+            for z in range(len(voxel_grid[2])):
+                voxel = voxel_grid[x][y][z]
+                # Вызов метода вместо блока кода с IF-выражением
+                write_voxel(ply, voxel, (x, y, z))
+    ply.close()
+```
+
+
+## Фрагмент 3.
+### Исходная версия (цикломатическая сложность - 7):
+```python
+def __solve_cover_for_3_vertex_and_stop_vertex(self, center, direction, stop):
+        debug.print('__solve_cover_for_3_vertex_and_leaf', center, direction, stop)
+        current = direction
+        previous = center
+        if self.__iteration_candidates[direction]:
+            length = 0
+        elif self.__iteration_candidates[center]:
+            length = 1
+        else:
+            length = 2
+        while current != stop:
+            for neighbor in self.__graph.neighbors(current):
+                if neighbor != previous:
+                    length += 1
+                    if length % 3 == 0:
+                        self.__iteration_candidates[neighbor] = True
+                    previous = current
+                    current = neighbor
+                    break
+```
+### Исправленная версия (цикломатическая сложность - 2):
+Использованные приемы:
+1. Выделил выбор начальной длины в отдельный метод
+2. Избавился от вложенного цикла for с вложенным if-условием заменой на выражение filter
+3. Убрал ненужный if в выражении, где напрямую можно использовать логическое условие.
+Исправления отмечены комментариями в коде.
+```python
+    # Выделил метод
+    def __get_initial_length(self, center, direction):
+        if self.__iteration_candidates[direction]:
+            return 0
+        if self.__iteration_candidates[center]:
+            return 1
+        return 2
+
+    def __solve_cover_for_3_vertex_and_stop_vertex(self, center, direction, stop):
+        debug.print('__solve_cover_for_3_vertex_and_leaf', center, direction, stop)
+        current = direction
+        previous = center
+        # Использовал выделенный метод
+        length = self.__get_initial_length(center, direction)
+        while current != stop:
+            # выбор вершины при помощи filter вместо цикла с условием
+            neighbor = next(filter(lambda x: x != previous, self.__graph.neighbors[current]))
+            length += 1
+            # использование логического выражения вместо if 
+            self.__iteration_candidates[neighbor] = (length % 3 == 0)
+            previous = current
+            current = neighbor
+```
+
+## Заключение
+Функции для анализа брал из своих старых работ (лабораторки, диплом).
+Понизить цикломатическую сложность в два раза получилось самыми простыми из описанных в мини-курсе методов; код был с большой вложенностью.
+Flake8 показал для отдельных функций сложность порядка 20-30.
+Сделал вывод, что код, который кажется логичным на первый взгляд, можно доработать и упростить при более детальном рассмотрении и наличии численных метрик.
+Отказ от вложенных if, а также полный отказ от else я уже практикую на работе (начал после прохождения курса Clean Code).
+Также постараюсь применять более сложные методики, описанные в мини-курсе, когда окончательно разберусь.
